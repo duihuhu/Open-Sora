@@ -301,6 +301,59 @@ def main():
                     if save_path.endswith(".mp4") and cfg.get("watermark", False):
                         time.sleep(1)  # prevent loading previous generated video
                         add_watermark(save_path)
+            
+            t1 = time.time()
+            for loop_i in range(loop):
+                # == get prompt for loop i ==
+                batch_prompts_loop = extract_prompts_loop(batch_prompts, loop_i)
+
+                # == add condition frames for loop ==
+                if loop_i > 0:
+                    refs, ms = append_generated(
+                        vae, video_clips[-1], refs, ms, loop_i, condition_frame_length, condition_frame_edit
+                    )
+
+                # == sampling ==
+                torch.manual_seed(1024)
+                z = torch.randn(len(batch_prompts), vae.out_channels, *latent_size, device=device, dtype=dtype)
+                masks = apply_mask_strategy(z, refs, ms, loop_i, align=align)
+                samples = scheduler.sample(
+                    model,
+                    text_encoder,
+                    z=z,
+                    prompts=batch_prompts_loop,
+                    device=device,
+                    additional_args=model_args,
+                    progress=verbose >= 2,
+                    mask=masks,
+                )
+                t2 = time.time()
+                torch.cuda.synchronize()
+                samples = vae.decode(samples.to(dtype), num_frames=num_frames)
+                torch.cuda.synchronize()      
+                t3 = time.time()
+                print("execute time ", t3-t2, t2-t1)
+                video_clips.append(samples)
+
+            # == save samples ==
+            if is_main_process():
+                for idx, batch_prompt in enumerate(batch_prompts):
+                    if verbose >= 2:
+                        logger.info("Prompt: %s", batch_prompt)
+                    save_path = save_paths[idx]
+                    video = [video_clips[i][idx] for i in range(loop)]
+                    for i in range(1, loop):
+                        video[i] = video[i][:, dframe_to_frame(condition_frame_length) :]
+                    video = torch.cat(video, dim=1)
+                    save_path = save_sample(
+                        video,
+                        fps=save_fps,
+                        save_path=save_path,
+                        verbose=verbose >= 2,
+                    )
+                    if save_path.endswith(".mp4") and cfg.get("watermark", False):
+                        time.sleep(1)  # prevent loading previous generated video
+                        add_watermark(save_path)
         start_idx += len(batch_prompts)
     logger.info("Inference finished.")
     logger.info("Saved %s samples to %s", start_idx, save_dir)
