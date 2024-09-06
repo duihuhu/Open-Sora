@@ -302,7 +302,7 @@ def main():
                         time.sleep(1)  # prevent loading previous generated video
                         add_watermark(save_path)
             
-                        t1 = time.time()
+            t1 = time.time()
             for loop_i in range(loop):
                 # == get prompt for loop i ==
                 batch_prompts_loop = extract_prompts_loop(batch_prompts, loop_i)
