@@ -28,7 +28,7 @@ vae = dict(
 )
 text_encoder = dict(
     type="t5",
-    from_pretrained="/home/jovyan/models/t5-v1_1-xxl/models/snapshots/c9c625d2ec93667ec579ede125fd3811d1f81d37",
+    from_pretrained="/home/jovyan/models/t5-v1_1-xxl/models/snapshots/c9c625d2ec93667ec579ede125fd3811d1f81d37/",
     model_max_length=300,
 )
 scheduler = dict(
