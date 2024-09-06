@@ -15,14 +15,14 @@ align = 5
 
 model = dict(
     type="STDiT3-XL/2",
-    from_pretrained="/home/jovyan/models/OpenSora-STDiT-v3/models/snapshots/9a8583918505ee93bd9fae8dd5ce32e1f9334c71/model",
+    from_pretrained="/home/jovyan/models/OpenSora-STDiT-v3/models/snapshots/9a8583918505ee93bd9fae8dd5ce32e1f9334c71/",
     qk_norm=True,
     enable_flash_attn=True,
     enable_layernorm_kernel=True,
 )
 vae = dict(
     type="OpenSoraVAE_V1_2",
-    from_pretrained="/home/jovyan/models/OpenSora-VAE-v1.2/models/snapshots/33d153e9b5a9f771a8a84f98bd3f46458a8ed0bf/model",
+    from_pretrained="/home/jovyan/models/OpenSora-VAE-v1.2/models/snapshots/33d153e9b5a9f771a8a84f98bd3f46458a8ed0bf/",
     micro_frame_size=17,
     micro_batch_size=4,
 )
