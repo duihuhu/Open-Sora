@@ -249,6 +249,7 @@ def main():
 
             # == Iter over loop generation ==
             video_clips = []
+            t1 = time.time()
             for loop_i in range(loop):
                 # == get prompt for loop i ==
                 batch_prompts_loop = extract_prompts_loop(batch_prompts, loop_i)
@@ -273,7 +274,12 @@ def main():
                     progress=verbose >= 2,
                     mask=masks,
                 )
+                t2 = time.time()
+                torch.cuda.synchronize()
                 samples = vae.decode(samples.to(dtype), num_frames=num_frames)
+                torch.cuda.synchronize()      
+                t3 = time.time()
+                print("execute time ", t3-t2, t2-t1)
                 video_clips.append(samples)
 
             # == save samples ==
