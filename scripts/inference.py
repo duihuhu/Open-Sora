@@ -143,218 +143,166 @@ def main():
     prompt_as_path = cfg.get("prompt_as_path", False)
 
     # == Iter over all samples ==
-    for i in progress_wrap(range(0, len(prompts), batch_size)):
-        # == prepare batch prompts ==
-        batch_prompts = prompts[i : i + batch_size]
-        ms = mask_strategy[i : i + batch_size]
-        refs = reference_path[i : i + batch_size]
+    for k_iter in range(2):
+        t1 = time.time()
+        for i in progress_wrap(range(0, len(prompts), batch_size)):
+            # == prepare batch prompts ==
+            batch_prompts = prompts[i : i + batch_size]
+            ms = mask_strategy[i : i + batch_size]
+            refs = reference_path[i : i + batch_size]
 
-        # == get json from prompts ==
-        batch_prompts, refs, ms = extract_json_from_prompts(batch_prompts, refs, ms)
-        original_batch_prompts = batch_prompts
+            # == get json from prompts ==
+            batch_prompts, refs, ms = extract_json_from_prompts(batch_prompts, refs, ms)
+            original_batch_prompts = batch_prompts
 
-        # == get reference for condition ==
-        refs = collect_references_batch(refs, vae, image_size)
+            # == get reference for condition ==
+            refs = collect_references_batch(refs, vae, image_size)
 
-        # == multi-resolution info ==
-        model_args = prepare_multi_resolution_info(
-            multi_resolution, len(batch_prompts), image_size, num_frames, fps, device, dtype
-        )
+            # == multi-resolution info ==
+            model_args = prepare_multi_resolution_info(
+                multi_resolution, len(batch_prompts), image_size, num_frames, fps, device, dtype
+            )
 
-        # == Iter over number of sampling for one prompt ==
-        for k in range(num_sample):
-            # == prepare save paths ==
-            save_paths = [
-                get_save_path_name(
-                    save_dir,
-                    sample_name=sample_name,
-                    sample_idx=start_idx + idx,
-                    prompt=original_batch_prompts[idx],
-                    prompt_as_path=prompt_as_path,
-                    num_sample=num_sample,
-                    k=k,
-                )
-                for idx in range(len(batch_prompts))
-            ]
+            # == Iter over number of sampling for one prompt ==
+            for k in range(num_sample):
+                # == prepare save paths ==
+                save_paths = [
+                    get_save_path_name(
+                        save_dir,
+                        sample_name=sample_name,
+                        sample_idx=start_idx + idx,
+                        prompt=original_batch_prompts[idx],
+                        prompt_as_path=prompt_as_path,
+                        num_sample=num_sample,
+                        k=k,
+                    )
+                    for idx in range(len(batch_prompts))
+                ]
 
-            # NOTE: Skip if the sample already exists
-            # This is useful for resuming sampling VBench
-            if prompt_as_path and all_exists(save_paths):
-                continue
+                # NOTE: Skip if the sample already exists
+                # This is useful for resuming sampling VBench
+                if prompt_as_path and all_exists(save_paths):
+                    continue
 
-            # == process prompts step by step ==
-            # 0. split prompt
-            # each element in the list is [prompt_segment_list, loop_idx_list]
-            batched_prompt_segment_list = []
-            batched_loop_idx_list = []
-            for prompt in batch_prompts:
-                prompt_segment_list, loop_idx_list = split_prompt(prompt)
-                batched_prompt_segment_list.append(prompt_segment_list)
-                batched_loop_idx_list.append(loop_idx_list)
+                # == process prompts step by step ==
+                # 0. split prompt
+                # each element in the list is [prompt_segment_list, loop_idx_list]
+                batched_prompt_segment_list = []
+                batched_loop_idx_list = []
+                for prompt in batch_prompts:
+                    prompt_segment_list, loop_idx_list = split_prompt(prompt)
+                    batched_prompt_segment_list.append(prompt_segment_list)
+                    batched_loop_idx_list.append(loop_idx_list)
 
-            # 1. refine prompt by openai
-            if cfg.get("llm_refine", False):
-                # only call openai API when
-                # 1. seq parallel is not enabled
-                # 2. seq parallel is enabled and the process is rank 0
-                if not enable_sequence_parallelism or (enable_sequence_parallelism and is_main_process()):
-                    for idx, prompt_segment_list in enumerate(batched_prompt_segment_list):
-                        batched_prompt_segment_list[idx] = refine_prompts_by_openai(prompt_segment_list)
+                # 1. refine prompt by openai
+                if cfg.get("llm_refine", False):
+                    # only call openai API when
+                    # 1. seq parallel is not enabled
+                    # 2. seq parallel is enabled and the process is rank 0
+                    if not enable_sequence_parallelism or (enable_sequence_parallelism and is_main_process()):
+                        for idx, prompt_segment_list in enumerate(batched_prompt_segment_list):
+                            batched_prompt_segment_list[idx] = refine_prompts_by_openai(prompt_segment_list)
 
-                # sync the prompt if using seq parallel
-                if enable_sequence_parallelism:
-                    coordinator.block_all()
-                    prompt_segment_length = [
-                        len(prompt_segment_list) for prompt_segment_list in batched_prompt_segment_list
-                    ]
+                    # sync the prompt if using seq parallel
+                    if enable_sequence_parallelism:
+                        coordinator.block_all()
+                        prompt_segment_length = [
+                            len(prompt_segment_list) for prompt_segment_list in batched_prompt_segment_list
+                        ]
 
-                    # flatten the prompt segment list
-                    batched_prompt_segment_list = [
-                        prompt_segment
-                        for prompt_segment_list in batched_prompt_segment_list
-                        for prompt_segment in prompt_segment_list
-                    ]
+                        # flatten the prompt segment list
+                        batched_prompt_segment_list = [
+                            prompt_segment
+                            for prompt_segment_list in batched_prompt_segment_list
+                            for prompt_segment in prompt_segment_list
+                        ]
 
-                    # create a list of size equal to world size
-                    broadcast_obj_list = [batched_prompt_segment_list] * coordinator.world_size
-                    dist.broadcast_object_list(broadcast_obj_list, 0)
+                        # create a list of size equal to world size
+                        broadcast_obj_list = [batched_prompt_segment_list] * coordinator.world_size
+                        dist.broadcast_object_list(broadcast_obj_list, 0)
 
-                    # recover the prompt list
-                    batched_prompt_segment_list = []
-                    segment_start_idx = 0
-                    all_prompts = broadcast_obj_list[0]
-                    for num_segment in prompt_segment_length:
-                        batched_prompt_segment_list.append(
-                            all_prompts[segment_start_idx : segment_start_idx + num_segment]
+                        # recover the prompt list
+                        batched_prompt_segment_list = []
+                        segment_start_idx = 0
+                        all_prompts = broadcast_obj_list[0]
+                        for num_segment in prompt_segment_length:
+                            batched_prompt_segment_list.append(
+                                all_prompts[segment_start_idx : segment_start_idx + num_segment]
+                            )
+                            segment_start_idx += num_segment
+
+                # 2. append score
+                for idx, prompt_segment_list in enumerate(batched_prompt_segment_list):
+                    batched_prompt_segment_list[idx] = append_score_to_prompts(
+                        prompt_segment_list,
+                        aes=cfg.get("aes", None),
+                        flow=cfg.get("flow", None),
+                        camera_motion=cfg.get("camera_motion", None),
+                    )
+
+                # 3. clean prompt with T5
+                for idx, prompt_segment_list in enumerate(batched_prompt_segment_list):
+                    batched_prompt_segment_list[idx] = [text_preprocessing(prompt) for prompt in prompt_segment_list]
+
+                # 4. merge to obtain the final prompt
+                batch_prompts = []
+                for prompt_segment_list, loop_idx_list in zip(batched_prompt_segment_list, batched_loop_idx_list):
+                    batch_prompts.append(merge_prompt(prompt_segment_list, loop_idx_list))
+
+                # == Iter over loop generation ==
+                video_clips = []
+                for loop_i in range(loop):
+                    # == get prompt for loop i ==
+                    batch_prompts_loop = extract_prompts_loop(batch_prompts, loop_i)
+
+                    # == add condition frames for loop ==
+                    if loop_i > 0:
+                        refs, ms = append_generated(
+                            vae, video_clips[-1], refs, ms, loop_i, condition_frame_length, condition_frame_edit
                         )
-                        segment_start_idx += num_segment
 
-            # 2. append score
-            for idx, prompt_segment_list in enumerate(batched_prompt_segment_list):
-                batched_prompt_segment_list[idx] = append_score_to_prompts(
-                    prompt_segment_list,
-                    aes=cfg.get("aes", None),
-                    flow=cfg.get("flow", None),
-                    camera_motion=cfg.get("camera_motion", None),
-                )
-
-            # 3. clean prompt with T5
-            for idx, prompt_segment_list in enumerate(batched_prompt_segment_list):
-                batched_prompt_segment_list[idx] = [text_preprocessing(prompt) for prompt in prompt_segment_list]
-
-            # 4. merge to obtain the final prompt
-            batch_prompts = []
-            for prompt_segment_list, loop_idx_list in zip(batched_prompt_segment_list, batched_loop_idx_list):
-                batch_prompts.append(merge_prompt(prompt_segment_list, loop_idx_list))
-
-            # == Iter over loop generation ==
-            video_clips = []
-            t1 = time.time()
-            for loop_i in range(loop):
-                # == get prompt for loop i ==
-                batch_prompts_loop = extract_prompts_loop(batch_prompts, loop_i)
-
-                # == add condition frames for loop ==
-                if loop_i > 0:
-                    refs, ms = append_generated(
-                        vae, video_clips[-1], refs, ms, loop_i, condition_frame_length, condition_frame_edit
+                    # == sampling ==
+                    torch.manual_seed(1024)
+                    z = torch.randn(len(batch_prompts), vae.out_channels, *latent_size, device=device, dtype=dtype)
+                    masks = apply_mask_strategy(z, refs, ms, loop_i, align=align)
+                    samples = scheduler.sample(
+                        model,
+                        text_encoder,
+                        z=z,
+                        prompts=batch_prompts_loop,
+                        device=device,
+                        additional_args=model_args,
+                        progress=verbose >= 2,
+                        mask=masks,
                     )
-
-                # == sampling ==
-                torch.manual_seed(1024)
-                z = torch.randn(len(batch_prompts), vae.out_channels, *latent_size, device=device, dtype=dtype)
-                masks = apply_mask_strategy(z, refs, ms, loop_i, align=align)
-                samples = scheduler.sample(
-                    model,
-                    text_encoder,
-                    z=z,
-                    prompts=batch_prompts_loop,
-                    device=device,
-                    additional_args=model_args,
-                    progress=verbose >= 2,
-                    mask=masks,
-                )
-                t2 = time.time()
-                torch.cuda.synchronize()
-                samples = vae.decode(samples.to(dtype), num_frames=num_frames)
+                    torch.cuda.synchronize()
+                    t2 = time.time()
+                    samples = vae.decode(samples.to(dtype), num_frames=num_frames)
                 torch.cuda.synchronize()      
                 t3 = time.time()
                 print("execute time ", t3-t2, t2-t1)
                 video_clips.append(samples)
 
-            # == save samples ==
-            if is_main_process():
-                for idx, batch_prompt in enumerate(batch_prompts):
-                    if verbose >= 2:
-                        logger.info("Prompt: %s", batch_prompt)
-                    save_path = save_paths[idx]
-                    video = [video_clips[i][idx] for i in range(loop)]
-                    for i in range(1, loop):
-                        video[i] = video[i][:, dframe_to_frame(condition_frame_length) :]
-                    video = torch.cat(video, dim=1)
-                    save_path = save_sample(
-                        video,
-                        fps=save_fps,
-                        save_path=save_path,
-                        verbose=verbose >= 2,
-                    )
-                    if save_path.endswith(".mp4") and cfg.get("watermark", False):
-                        time.sleep(1)  # prevent loading previous generated video
-                        add_watermark(save_path)
-            
-            t1 = time.time()
-            for loop_i in range(loop):
-                # == get prompt for loop i ==
-                batch_prompts_loop = extract_prompts_loop(batch_prompts, loop_i)
-
-                # == add condition frames for loop ==
-                if loop_i > 0:
-                    refs, ms = append_generated(
-                        vae, video_clips[-1], refs, ms, loop_i, condition_frame_length, condition_frame_edit
-                    )
-
-                # == sampling ==
-                torch.manual_seed(1024)
-                z = torch.randn(len(batch_prompts), vae.out_channels, *latent_size, device=device, dtype=dtype)
-                masks = apply_mask_strategy(z, refs, ms, loop_i, align=align)
-                samples = scheduler.sample(
-                    model,
-                    text_encoder,
-                    z=z,
-                    prompts=batch_prompts_loop,
-                    device=device,
-                    additional_args=model_args,
-                    progress=verbose >= 2,
-                    mask=masks,
-                )
-                t2 = time.time()
-                torch.cuda.synchronize()
-                samples = vae.decode(samples.to(dtype), num_frames=num_frames)
-                torch.cuda.synchronize()      
-                t3 = time.time()
-                print("execute time ", t3-t2, t2-t1)
-                video_clips.append(samples)
-
-            # == save samples ==
-            if is_main_process():
-                for idx, batch_prompt in enumerate(batch_prompts):
-                    if verbose >= 2:
-                        logger.info("Prompt: %s", batch_prompt)
-                    save_path = save_paths[idx]
-                    video = [video_clips[i][idx] for i in range(loop)]
-                    for i in range(1, loop):
-                        video[i] = video[i][:, dframe_to_frame(condition_frame_length) :]
-                    video = torch.cat(video, dim=1)
-                    save_path = save_sample(
-                        video,
-                        fps=save_fps,
-                        save_path=save_path,
-                        verbose=verbose >= 2,
-                    )
-                    if save_path.endswith(".mp4") and cfg.get("watermark", False):
-                        time.sleep(1)  # prevent loading previous generated video
-                        add_watermark(save_path)
-        start_idx += len(batch_prompts)
+                # == save samples ==
+                if is_main_process():
+                    for idx, batch_prompt in enumerate(batch_prompts):
+                        if verbose >= 2:
+                            logger.info("Prompt: %s", batch_prompt)
+                        save_path = save_paths[idx]
+                        video = [video_clips[i][idx] for i in range(loop)]
+                        for i in range(1, loop):
+                            video[i] = video[i][:, dframe_to_frame(condition_frame_length) :]
+                        video = torch.cat(video, dim=1)
+                        save_path = save_sample(
+                            video,
+                            fps=save_fps,
+                            save_path=save_path,
+                            verbose=verbose >= 2,
+                        )
+                        if save_path.endswith(".mp4") and cfg.get("watermark", False):
+                            time.sleep(1)  # prevent loading previous generated video
+                            add_watermark(save_path)
+            start_idx += len(batch_prompts)
     logger.info("Inference finished.")
     logger.info("Saved %s samples to %s", start_idx, save_dir)
 
