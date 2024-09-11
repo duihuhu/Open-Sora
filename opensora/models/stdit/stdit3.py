@@ -60,7 +60,8 @@ class STDiT3Block(nn.Module):
             attn_cls = Attention
             mha_cls = MultiHeadCrossAttention
 
-        self.norm1 = get_layernorm(hidden_size, eps=1e-6, affine=False, use_kernel=enable_layernorm_kernel)
+        # self.norm1 = get_layernorm(hidden_size, eps=1e-6, affine=False, use_kernel=enable_layernorm_kernel)
+        self.norm1 = get_layernorm(hidden_size, eps=1e-6, affine=False, use_kernel=False)
         self.attn = attn_cls(
             hidden_size,
             num_heads=num_heads,
@@ -70,7 +71,8 @@ class STDiT3Block(nn.Module):
             enable_flash_attn=enable_flash_attn,
         )
         self.cross_attn = mha_cls(hidden_size, num_heads)
-        self.norm2 = get_layernorm(hidden_size, eps=1e-6, affine=False, use_kernel=enable_layernorm_kernel)
+        # self.norm2 = get_layernorm(hidden_size, eps=1e-6, affine=False, use_kernel=enable_layernorm_kernel)
+        self.norm2 = get_layernorm(hidden_size, eps=1e-6, affine=False, use_kernel=False)
         self.mlp = Mlp(
             in_features=hidden_size, hidden_features=int(hidden_size * mlp_ratio), act_layer=approx_gelu, drop=0
         )
@@ -260,8 +262,10 @@ class STDiT3(PreTrainedModel):
                     mlp_ratio=config.mlp_ratio,
                     drop_path=drop_path[i],
                     qk_norm=config.qk_norm,
-                    enable_flash_attn=config.enable_flash_attn,
-                    enable_layernorm_kernel=config.enable_layernorm_kernel,
+                    # enable_flash_attn=config.enable_flash_attn,
+                    # enable_layernorm_kernel=config.enable_layernorm_kernel,
+                    enable_flash_attn=False,
+                    enable_layernorm_kernel=False,
                     enable_sequence_parallelism=config.enable_sequence_parallelism,
                 )
                 for i in range(config.depth)
@@ -278,8 +282,10 @@ class STDiT3(PreTrainedModel):
                     mlp_ratio=config.mlp_ratio,
                     drop_path=drop_path[i],
                     qk_norm=config.qk_norm,
-                    enable_flash_attn=config.enable_flash_attn,
-                    enable_layernorm_kernel=config.enable_layernorm_kernel,
+                    # enable_flash_attn=config.enable_flash_attn,
+                    # enable_layernorm_kernel=config.enable_layernorm_kernel,
+                    enable_flash_attn=False,
+                    enable_layernorm_kernel=False,
                     enable_sequence_parallelism=config.enable_sequence_parallelism,
                     # temporal
                     temporal=True,
