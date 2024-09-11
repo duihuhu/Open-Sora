@@ -25,7 +25,7 @@ CONFIG_MAP = {
     "v1.2-stage3": "configs/opensora-v1-2/inference/sample.py",
 }
 # HF_STDIT_MAP = {"v1.2-stage3": "hpcai-tech/OpenSora-STDiT-v3"}
-HF_STDIT_MAP = {"v1.2-stage3": "/home/jovyan/models/OpenSora-STDiT-v3/models/snapshots9a8583918505ee93bd9fae8dd5ce32e1f9334c71/"}
+HF_STDIT_MAP = {"v1.2-stage3": "/home/jovyan/models/OpenSora-STDiT-v3/models/snapshots/9a8583918505ee93bd9fae8dd5ce32e1f9334c71/"}
 
 
 # ============================
