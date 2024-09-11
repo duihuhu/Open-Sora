@@ -21,7 +21,8 @@ num_workers = 4
 # Define model
 model = dict(
     type="OpenSoraVAE_V1_2",
-    from_pretrained="/home/jovyan/models/OpenSora-STDiT-v3/models/snapshots9a8583918505ee93bd9fae8dd5ce32e1f9334c71/",
+    # from_pretrained="hpcai-tech/OpenSora-VAE-v1.2",
+    from_pretrained="/home/jovyan/models/OpenSora-VAE-v1.2/models/snapshots/33d153e9b5a9f771a8a84f98bd3f46458a8ed0bf/",
     micro_frame_size=None,
     micro_batch_size=4,
     cal_loss=True,
