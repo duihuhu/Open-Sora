@@ -293,15 +293,15 @@ def main():
                         for i in range(1, loop):
                             video[i] = video[i][:, dframe_to_frame(condition_frame_length) :]
                         video = torch.cat(video, dim=1)
-                        save_path = save_sample(
-                            video,
-                            fps=save_fps,
-                            save_path=save_path,
-                            verbose=verbose >= 2,
-                        )
-                        if save_path.endswith(".mp4") and cfg.get("watermark", False):
-                            time.sleep(1)  # prevent loading previous generated video
-                            add_watermark(save_path)
+                        # save_path = save_sample(
+                        #     video,
+                        #     fps=save_fps,
+                        #     save_path=save_path,
+                        #     verbose=verbose >= 2,
+                        # )
+                        # if save_path.endswith(".mp4") and cfg.get("watermark", False):
+                        #     time.sleep(1)  # prevent loading previous generated video
+                        #     add_watermark(save_path)
             start_idx += len(batch_prompts)
     logger.info("Inference finished.")
     logger.info("Saved %s samples to %s", start_idx, save_dir)
